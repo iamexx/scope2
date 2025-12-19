@@ -10,6 +10,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
 
 # Env
 .env
@@ -41,3 +42,7 @@ go.work
 # Build directories
 bin/
 dist/
+
+# Local Dev
+backend/go/
+backend/server
