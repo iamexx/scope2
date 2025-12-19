@@ -139,6 +139,91 @@ func meHandler(authService *services.AuthService) http.HandlerFunc {
     }
 }
 
+func steamcmdStatusHandler(steamCmdService *services.SteamCMDService) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        
+        if r.Method != http.MethodGet {
+            http.Error(w, `{"error": "method not allowed"}`, http.StatusMethodNotAllowed)
+            return
+        }
+        
+        status, err := steamCmdService.GetStatus()
+        if err != nil {
+            http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
+            return
+        }
+        
+        response := map[string]interface{}{
+            "version":    status["version"],
+            "lastSync":   status["lastSync"],
+            "centralPath": status["centralPath"],
+            "status":     status["status"],
+        }
+        
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(response)
+    }
+}
+
+func steamcmdSyncHandler(jobManager *services.JobManager) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        
+        if r.Method != http.MethodPost {
+            http.Error(w, `{"error": "method not allowed"}`, http.StatusMethodNotAllowed)
+            return
+        }
+        
+        jobID, err := jobManager.StartSyncJob()
+        if err != nil {
+            http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusInternalServerError)
+            return
+        }
+        
+        response := map[string]interface{}{
+            "jobId":  jobID,
+            "status": "running",
+        }
+        
+        w.WriteHeader(http.StatusAccepted)
+        json.NewEncoder(w).Encode(response)
+    }
+}
+
+func steamcmdProgressHandler(jobManager *services.JobManager) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "application/json")
+        
+        if r.Method != http.MethodGet {
+            http.Error(w, `{"error": "method not allowed"}`, http.StatusMethodNotAllowed)
+            return
+        }
+        
+        jobID := r.URL.Query().Get("jobId")
+        if jobID == "" {
+            http.Error(w, `{"error": "jobId parameter is required"}`, http.StatusBadRequest)
+            return
+        }
+        
+        job, err := jobManager.GetJobStatus(jobID)
+        if err != nil {
+            http.Error(w, `{"error": "`+err.Error()+`"}`, http.StatusNotFound)
+            return
+        }
+        
+        response := map[string]interface{}{
+            "status":   job.Status,
+            "progress": job.Progress,
+            "message":  job.Message,
+            "jobId":    job.ID,
+        }
+        
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode(response)
+    }
+}
+
 func healthHandler(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodGet {
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -169,23 +254,42 @@ func main() {
     
     // Initialize auth service
     authService := services.NewAuthService()
-    
+
+    // Initialize SteamCMD service
+    steamCmdService := services.NewSteamCMDService(db.DB)
+
+    // Initialize job manager
+    jobManager := services.NewJobManager(steamCmdService)
+
+    // Start job cleanup routine
+    jobManager.StartCleanupRoutine()
+
+    // Check for first run
+    if err := steamCmdService.CheckFirstRun(); err != nil {
+        log.Printf("Warning: Failed first run check: %v", err)
+    }
+
     // Create JWT middleware
     jwtMiddleware := middleware.JWTMiddleware(authService)
-    
+
     // Register handlers
     http.HandleFunc("/api/health", healthHandler)
     http.HandleFunc("/api/auth/setup", setupHandler(authService))
     http.HandleFunc("/api/auth/login", loginHandler(authService))
-    
+
+    // SteamCMD API endpoints
+    http.HandleFunc("/api/steamcmd/status", steamcmdStatusHandler(steamCmdService))
+    http.HandleFunc("/api/steamcmd/sync", steamcmdSyncHandler(jobManager))
+    http.HandleFunc("/api/steamcmd/sync/progress", steamcmdProgressHandler(jobManager))
+
     // Protected routes
     meHandler := meHandler(authService)
     http.Handle("/api/auth/me", jwtMiddleware(http.HandlerFunc(meHandler)))
-    
+
     // Start server on port 8080
     serverAddr := ":8080"
     log.Printf("Starting server on %s", serverAddr)
-    
+
     if err := http.ListenAndServe(serverAddr, nil); err != nil {
         log.Fatalf("Server failed to start: %v", err)
     }
