@@ -1,1 +1,2 @@
-2025/12/19 15:53:25 main.go:40: Starting server on :8080
+2025/12/19 21:06:37 main.go:168: Database initialized successfully
+2025/12/19 21:06:37 main.go:187: Starting server on :8080
