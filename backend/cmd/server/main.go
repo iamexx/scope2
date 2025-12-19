@@ -2,13 +2,42 @@ package main
 
 import (
     "encoding/json"
+    "fmt"
     "log"
     "net/http"
-
+    "regexp"
+    "strconv"
+    "strings"
+    
     "github.com/iamexx/scope2-dayz-api/internal/db"
-    "github.com/iamexx/scope2-dayz-api/internal/services"
     "github.com/iamexx/scope2-dayz-api/internal/middleware"
+    "github.com/iamexx/scope2-dayz-api/internal/services"
 )
+
+func extractServerID(path string) int64 {
+    // Extract server ID from path like /api/servers/{id}/...
+    re := regexp.MustCompile(`/api/servers/(\d+)/`)
+    matches := re.FindStringSubmatch(path)
+    if len(matches) < 2 {
+        return 0
+    }
+    id, err := strconv.ParseInt(matches[1], 10, 64)
+    if err != nil {
+        return 0
+    }
+    return id
+}
+
+func parseServerIDFromPath(path string) string {
+    // Extract the numeric part from /api/servers/{id}/...
+    parts := strings.Split(path, "/")
+    for i, part := range parts {
+        if part == "servers" && i+1 < len(parts) {
+            return parts[i+1]
+        }
+    }
+    return ""
+}
 
 type HealthResponse struct {
     Status string `json:"status"`
@@ -181,6 +210,63 @@ func main() {
     // Protected routes
     meHandler := meHandler(authService)
     http.Handle("/api/auth/me", jwtMiddleware(http.HandlerFunc(meHandler)))
+    
+    // Initialize server handlers
+    serverHandlers := services.NewServerHandlers()
+    
+    // Server routes with JWT protection
+    http.Handle("/api/servers/", jwtMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        mux := http.NewServeMux()
+        
+        // Extract server ID from URL
+        serverID := extractServerID(r.URL.Path)
+        if serverID == 0 {
+            http.Error(w, `{"error": "invalid server ID"}`, http.StatusBadRequest)
+            return
+        }
+        
+        userID, _ := middleware.GetUserID(r)
+        userIDStr := fmt.Sprintf("%d", userID)
+        
+        // Define route handlers
+        mux.HandleFunc("/api/servers/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+            if r.Method != http.MethodGet {
+                http.Error(w, `{"error": "method not allowed"}`, http.StatusMethodNotAllowed)
+                return
+            }
+            serverHandlers.GetLogs(w, r, serverID)
+        })
+        
+        mux.HandleFunc("/api/servers/{id}/logs/admin", func(w http.ResponseWriter, r *http.Request) {
+            if r.Method != http.MethodGet {
+                http.Error(w, `{"error": "method not allowed"}`, http.StatusMethodNotAllowed)
+                return
+            }
+            serverHandlers.GetAdminLogs(w, r, serverID)
+        })
+        
+        mux.HandleFunc("/api/servers/{id}/config", func(w http.ResponseWriter, r *http.Request) {
+            switch r.Method {
+            case http.MethodGet:
+                serverHandlers.GetConfig(w, r, serverID)
+            case http.MethodPut:
+                serverHandlers.UpdateConfig(w, r, serverID, userIDStr)
+            default:
+                http.Error(w, `{"error": "method not allowed"}`, http.StatusMethodNotAllowed)
+            }
+        })
+        
+        mux.HandleFunc("/api/servers/{id}/config/backup", func(w http.ResponseWriter, r *http.Request) {
+            switch r.Method {
+            case http.MethodGet:
+                serverHandlers.GetConfigBackup(w, r, serverID)
+            default:
+                http.Error(w, `{"error": "method not allowed"}`, http.StatusMethodNotAllowed)
+            }
+        })
+        
+        mux.ServeHTTP(w, r)
+    })))
     
     // Start server on port 8080
     serverAddr := ":8080"
