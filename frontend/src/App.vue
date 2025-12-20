@@ -1,11 +1,36 @@
 <script setup>
-import AppHeader from './components/AppHeader.vue'
-import HomePage from './pages/HomePage.vue'
+import { computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { useAuthStore } from './stores/authStore'
+import MainLayout from './layouts/MainLayout.vue'
+import AuthLayout from './layouts/AuthLayout.vue'
+
+const route = useRoute()
+const authStore = useAuthStore()
+
+const layoutComponent = computed(() => {
+  const layout = route.meta.layout
+  if (layout === 'auth') {
+    return AuthLayout
+  }
+  return MainLayout
+})
+
+onMounted(async () => {
+  // Check if user is already authenticated
+  if (authStore.token && !authStore.user) {
+    try {
+      await authStore.fetchUser()
+    } catch (error) {
+      // Token is invalid, clear auth
+      authStore.clearAuth()
+    }
+  }
+})
 </script>
 
 <template>
-  <div class="min-h-full bg-slate-100 text-slate-900">
-    <AppHeader title="Frontend" />
-    <HomePage />
-  </div>
+  <component :is="layoutComponent">
+    <RouterView />
+  </component>
 </template>
