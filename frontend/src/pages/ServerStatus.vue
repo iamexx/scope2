@@ -3,7 +3,6 @@ import { ref, onMounted, computed } from 'vue'
 import { useServerStore } from '../stores/serverStore'
 import { useUiStore } from '../stores/uiStore'
 import ServerCard from '../components/ServerCard.vue'
-import LoadingSpinner from '../components/LoadingSpinner.vue'
 
 const serverStore = useServerStore()
 const uiStore = useUiStore()

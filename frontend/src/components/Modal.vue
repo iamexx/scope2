@@ -1,5 +1,5 @@
 <script setup>
-defineProps({
+const props = defineProps({
   isOpen: {
     type: Boolean,
     required: true,
@@ -26,7 +26,7 @@ defineProps({
   },
 })
 
-const emit = defineEmits(['close', 'action'])
+defineEmits(['close', 'action'])
 
 const getActionButtonClasses = () => {
   const base = 'px-4 py-2 rounded-lg font-medium transition-colors'
@@ -35,8 +35,6 @@ const getActionButtonClasses = () => {
   }
   return `${base} bg-blue-500 text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed`
 }
-
-const props = defineProps()
 </script>
 
 <template>
