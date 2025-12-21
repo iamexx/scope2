@@ -146,6 +146,70 @@ export const useServerStore = defineStore('servers', () => {
     currentServer.value = server
   }
 
+  // FTP Methods
+  const fetchFTPCredentials = async (serverId) => {
+    try {
+      const response = await apiClient.get(`/servers/${serverId}/ftp/credentials`)
+      return response.data
+    } catch (err) {
+      if (err.response?.status === 404) {
+        return null // FTP user doesn't exist
+      }
+      error.value = err.response?.data?.error || 'Failed to fetch FTP credentials'
+      throw err
+    }
+  }
+
+  const createFTPUser = async (serverId, username) => {
+    try {
+      loading.value = true
+      error.value = null
+      
+      const response = await apiClient.post(`/servers/${serverId}/ftp/create`, {
+        username
+      })
+      
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.error || 'Failed to create FTP user'
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const regenerateFTPPassword = async (serverId) => {
+    try {
+      loading.value = true
+      error.value = null
+      
+      const response = await apiClient.post(`/servers/${serverId}/ftp/regenerate-password`)
+      
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.error || 'Failed to regenerate FTP password'
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
+  const deleteFTPUser = async (serverId) => {
+    try {
+      loading.value = true
+      error.value = null
+      
+      const response = await apiClient.delete(`/servers/${serverId}/ftp/user`)
+      
+      return response.data
+    } catch (err) {
+      error.value = err.response?.data?.error || 'Failed to delete FTP user'
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     servers,
     currentServer,
@@ -160,5 +224,9 @@ export const useServerStore = defineStore('servers', () => {
     stopServer,
     restartServer,
     setCurrentServer,
+    fetchFTPCredentials,
+    createFTPUser,
+    regenerateFTPPassword,
+    deleteFTPUser,
   }
 })
