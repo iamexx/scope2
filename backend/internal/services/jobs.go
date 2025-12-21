@@ -32,7 +32,7 @@ func generateJobID() string {
 // StartSyncJob starts a sync job in the background
 func (jm *JobManager) StartSyncJob() (string, error) {
 	jobID := generateJobID()
-	
+
 	// Create job entry
 	jm.service.jobMu.Lock()
 	jm.service.jobs[jobID] = &Job{
@@ -43,10 +43,10 @@ func (jm *JobManager) StartSyncJob() (string, error) {
 		Created:  time.Now(),
 	}
 	jm.service.jobMu.Unlock()
-	
+
 	// Run in background
 	go jm.runSyncJob(jobID)
-	
+
 	return jobID, nil
 }
 
@@ -63,13 +63,13 @@ func (jm *JobManager) runSyncJob(jobID string) {
 			logError(fmt.Sprintf("Job %s panicked: %v", jobID, r))
 		}
 	}()
-	
+
 	// Update progress
 	jm.service.jobMu.Lock()
 	jm.service.jobs[jobID].Progress = 10
 	jm.service.jobs[jobID].Message = "Checking SteamCMD..."
 	jm.service.jobMu.Unlock()
-	
+
 	// Ensure SteamCMD is installed
 	if err := jm.service.EnsureSteamCMD(); err != nil {
 		jm.service.jobMu.Lock()
@@ -78,7 +78,7 @@ func (jm *JobManager) runSyncJob(jobID string) {
 		jm.service.jobMu.Unlock()
 		return
 	}
-	
+
 	// Check current status
 	status, err := jm.service.GetStatus()
 	if err != nil {
@@ -88,18 +88,18 @@ func (jm *JobManager) runSyncJob(jobID string) {
 		jm.service.jobMu.Unlock()
 		return
 	}
-	
+
 	// Determine if we need to download or update
 	jobType := "update"
 	if status["status"] == "missing" {
 		jobType = "download"
 	}
-	
+
 	jm.service.jobMu.Lock()
 	jm.service.jobs[jobID].Progress = 20
 	jm.service.jobs[jobID].Message = fmt.Sprintf("Starting %s...", jobType)
 	jm.service.jobMu.Unlock()
-	
+
 	// Execute the appropriate operation
 	var operationErr error
 	if jobType == "download" {
@@ -107,7 +107,7 @@ func (jm *JobManager) runSyncJob(jobID string) {
 	} else {
 		operationErr = jm.service.UpdateDayZFiles()
 	}
-	
+
 	if operationErr != nil {
 		jm.service.jobMu.Lock()
 		jm.service.jobs[jobID].Status = "failed"
@@ -115,14 +115,14 @@ func (jm *JobManager) runSyncJob(jobID string) {
 		jm.service.jobMu.Unlock()
 		return
 	}
-	
+
 	// Update progress to complete
 	jm.service.jobMu.Lock()
 	jm.service.jobs[jobID].Status = "completed"
 	jm.service.jobs[jobID].Progress = 100
 	jm.service.jobs[jobID].Message = fmt.Sprintf("%s completed successfully", jobType)
 	jm.service.jobMu.Unlock()
-	
+
 	logInfo(fmt.Sprintf("Job %s completed", jobID))
 }
 
@@ -130,12 +130,12 @@ func (jm *JobManager) runSyncJob(jobID string) {
 func (jm *JobManager) GetJobStatus(jobID string) (*Job, error) {
 	jm.service.jobMu.RLock()
 	defer jm.service.jobMu.RUnlock()
-	
+
 	job, exists := jm.service.jobs[jobID]
 	if !exists {
 		return nil, fmt.Errorf("job not found")
 	}
-	
+
 	return job, nil
 }
 
@@ -143,9 +143,9 @@ func (jm *JobManager) GetJobStatus(jobID string) (*Job, error) {
 func (jm *JobManager) CleanupOldJobs() {
 	jm.service.jobMu.Lock()
 	defer jm.service.jobMu.Unlock()
-	
+
 	cutoffTime := time.Now().Add(-24 * time.Hour)
-	
+
 	for jobID, job := range jm.service.jobs {
 		if job.Created.Before(cutoffTime) {
 			delete(jm.service.jobs, jobID)
@@ -159,12 +159,12 @@ func (jm *JobManager) StartCleanupRoutine() {
 	go func() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			jm.CleanupOldJobs()
 		}
 	}()
-	
+
 	logInfo("Started job cleanup routine")
 }
 
@@ -172,7 +172,7 @@ func (jm *JobManager) StartCleanupRoutine() {
 func (jm *JobManager) GetAllJobs() map[string]*Job {
 	jm.service.jobMu.RLock()
 	defer jm.service.jobMu.RUnlock()
-	
+
 	// Return a copy to avoid concurrent modification issues
 	jobsCopy := make(map[string]*Job)
 	for k, v := range jm.service.jobs {
@@ -184,6 +184,6 @@ func (jm *JobManager) GetAllJobs() map[string]*Job {
 			Created:  v.Created,
 		}
 	}
-	
+
 	return jobsCopy
 }
