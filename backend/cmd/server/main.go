@@ -259,6 +259,7 @@ func main() {
 	processManager := services.NewProcessManager()
 	steamCmdService := services.NewSteamCMDService(db.DB)
 	jobManager := services.NewJobManager(steamCmdService)
+	ftpService := services.NewFTPService(authService)
 
 	// Start job cleanup routine
 	jobManager.StartCleanupRoutine()
@@ -269,7 +270,7 @@ func main() {
 	}
 
 	// Initialize server handler
-	serverHandler := handlers.NewServerHandler(processManager, authService)
+	serverHandler := handlers.NewServerHandler(processManager, authService, ftpService)
 
 	// Create main router
 	mainRouter := mux.NewRouter()
@@ -295,9 +296,10 @@ func main() {
 	mainRouter.Handle("/api/steamcmd/sync", jwtMiddleware(http.HandlerFunc(steamcmdSyncHandler(jobManager)))).Methods(http.MethodPost)
 	mainRouter.Handle("/api/steamcmd/sync/progress", jwtMiddleware(http.HandlerFunc(steamcmdProgressHandler(jobManager)))).Methods(http.MethodGet)
 
-	// Server management routes - using the new handler system (protected by JWT)
-	serverRouter := serverHandler.SetupServerRoutes()
-	mainRouter.PathPrefix("/api/servers/").Handler(jwtMiddleware(serverRouter))
+	// Server management routes (protected by JWT)
+	serverRouter := mainRouter.PathPrefix("/api/servers").Subrouter()
+	serverRouter.Use(jwtMiddleware)
+	serverHandler.RegisterRoutes(serverRouter)
 
 	// Start server on port 8080
 	serverAddr := ":8080"
