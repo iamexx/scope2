@@ -33,6 +33,7 @@ func (sh *ServerHandler) RegisterRoutes(router *mux.Router) {
     router.HandleFunc("/{id}/ftp/credentials", sh.GetFTPCredentials).Methods(http.MethodGet)
     router.HandleFunc("/{id}/ftp/regenerate-password", sh.RegenerateFTPPassword).Methods(http.MethodPost)
     router.HandleFunc("/{id}/ftp/user", sh.DeleteFTPUser).Methods(http.MethodDelete)
+    router.HandleFunc("/{id}/ftp/status", sh.GetFTPStatus).Methods(http.MethodGet)
 }
 
 // SetupServerRoutes sets up a router with all server routes and middleware
