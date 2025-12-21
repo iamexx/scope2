@@ -111,14 +111,16 @@ type ErrorResponse struct {
 type ServerHandler struct {
     processManager *services.ProcessManager
     authService    *services.AuthService
+    ftpService     *services.FTPService
     logger         *log.Logger
 }
 
 // NewServerHandler creates a new ServerHandler instance
-func NewServerHandler(processManager *services.ProcessManager, authService *services.AuthService) *ServerHandler {
+func NewServerHandler(processManager *services.ProcessManager, authService *services.AuthService, ftpService *services.FTPService) *ServerHandler {
     return &ServerHandler{
         processManager: processManager,
         authService:    authService,
+        ftpService:     ftpService,
         logger:         log.New(os.Stdout, "[SERVER-HANDLER] ", log.LstdFlags|log.Lshortfile),
     }
 }
@@ -877,66 +879,20 @@ func (sh *ServerHandler) CreateFTPUser(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Check if FTP user already exists
-    var exists int
-    err = db.DB.QueryRow(
-        "SELECT COUNT(*) FROM ftp_users WHERE username = ?", req.Username,
-    ).Scan(&exists)
-    if err != nil {
-        sh.handleError(w, r, fmt.Errorf("database error: %v", err), userID)
-        return
-    }
-    if exists > 0 {
-        sh.handleError(w, r, fmt.Errorf("FTP user already exists"), userID)
-        return
-    }
-
-    // Generate password
-    password, err := sh.generateRandomPassword()
-    if err != nil {
-        sh.handleError(w, r, fmt.Errorf("failed to generate password: %v", err), userID)
-        return
-    }
-
-    passwordHash, err := sh.authService.HashPassword(password)
-    if err != nil {
-        sh.handleError(w, r, fmt.Errorf("failed to hash password: %v", err), userID)
-        return
-    }
-
-    // Get server details for home directory
-    server, err := sh.getServerByID(serverID)
-    if err != nil {
-        sh.handleError(w, r, err, userID)
-        return
-    }
-
-    serverFolder := fmt.Sprintf("/srv/dayz-servers/%s", server.Name)
-    homeDir := filepath.Join(serverFolder, "files")
-
-    // Create FTP user in database
-    result, err := db.DB.Exec(
-        "INSERT INTO ftp_users (server_id, username, password_hash, home_dir) VALUES (?, ?, ?, ?)",
-        serverID, req.Username, passwordHash, homeDir,
-    )
+    // Use FTPService to create the FTP user
+    ftpUser, password, err := sh.ftpService.CreateFTPUser(serverID)
     if err != nil {
         sh.handleError(w, r, fmt.Errorf("failed to create FTP user: %v", err), userID)
-        return
-    }
-
-    ftpUserID, err := result.LastInsertId()
-    if err != nil {
-        sh.handleError(w, r, fmt.Errorf("failed to get FTP user ID: %v", err), userID)
         return
     }
 
     sh.writeJSONResponse(w, http.StatusCreated, APIResponse{
         Status: "success",
         Data: CreateFTPUserResponse{
-            ID:       ftpUserID,
-            Username: req.Username,
+            ID:       ftpUser.ID,
+            Username: ftpUser.Username,
             Password: password,
-            HomeDir:  homeDir,
+            HomeDir:  ftpUser.HomeDir,
             Message:  "FTP user created successfully",
         },
     })
@@ -964,29 +920,20 @@ func (sh *ServerHandler) GetFTPCredentials(w http.ResponseWriter, r *http.Reques
         return
     }
 
-    // Get FTP user details
-    var username, homeDir string
-    err = db.DB.QueryRow(
-        "SELECT username, home_dir FROM ftp_users WHERE server_id = ? LIMIT 1",
-        serverID,
-    ).Scan(&username, &homeDir)
-    
-    if err == sql.ErrNoRows {
-        sh.handleError(w, r, fmt.Errorf("FTP user not found"), userID)
-        return
-    }
+    // Use FTPService to get credentials
+    ftpUser, err := sh.ftpService.GetCredentials(serverID)
     if err != nil {
-        sh.handleError(w, r, fmt.Errorf("database error: %v", err), userID)
+        sh.handleError(w, r, fmt.Errorf("failed to get FTP credentials: %v", err), userID)
         return
     }
 
     sh.writeJSONResponse(w, http.StatusOK, APIResponse{
         Status: "success",
         Data: FTPUserCredentialsResponse{
-            Username: username,
+            Username: ftpUser.Username,
             Host:     "localhost", // This should be configurable
             Port:     21,          // This should be configurable
-            HomeDir:  homeDir,
+            HomeDir:  ftpUser.HomeDir,
         },
     })
 
@@ -1013,42 +960,10 @@ func (sh *ServerHandler) RegenerateFTPPassword(w http.ResponseWriter, r *http.Re
         return
     }
 
-    // Get FTP user
-    var username string
-    err = db.DB.QueryRow(
-        "SELECT username FROM ftp_users WHERE server_id = ? LIMIT 1",
-        serverID,
-    ).Scan(&username)
-    
-    if err == sql.ErrNoRows {
-        sh.handleError(w, r, fmt.Errorf("FTP user not found"), userID)
-        return
-    }
+    // Use FTPService to regenerate password
+    newPassword, err := sh.ftpService.RegeneratePassword(serverID)
     if err != nil {
-        sh.handleError(w, r, fmt.Errorf("database error: %v", err), userID)
-        return
-    }
-
-    // Generate new password
-    newPassword, err := sh.generateRandomPassword()
-    if err != nil {
-        sh.handleError(w, r, fmt.Errorf("failed to generate password: %v", err), userID)
-        return
-    }
-
-    passwordHash, err := sh.authService.HashPassword(newPassword)
-    if err != nil {
-        sh.handleError(w, r, fmt.Errorf("failed to hash password: %v", err), userID)
-        return
-    }
-
-    // Update password in database
-    _, err = db.DB.Exec(
-        "UPDATE ftp_users SET password_hash = ? WHERE server_id = ?",
-        passwordHash, serverID,
-    )
-    if err != nil {
-        sh.handleError(w, r, fmt.Errorf("failed to update password: %v", err), userID)
+        sh.handleError(w, r, fmt.Errorf("failed to regenerate password: %v", err), userID)
         return
     }
 
@@ -1083,16 +998,10 @@ func (sh *ServerHandler) DeleteFTPUser(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Delete FTP user
-    result, err := db.DB.Exec("DELETE FROM ftp_users WHERE server_id = ?", serverID)
+    // Use FTPService to delete FTP user
+    err = sh.ftpService.DeleteFTPUser(serverID)
     if err != nil {
         sh.handleError(w, r, fmt.Errorf("failed to delete FTP user: %v", err), userID)
-        return
-    }
-
-    rowsAffected, _ := result.RowsAffected()
-    if rowsAffected == 0 {
-        sh.handleError(w, r, fmt.Errorf("FTP user not found"), userID)
         return
     }
 
