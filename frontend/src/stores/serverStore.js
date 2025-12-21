@@ -7,6 +7,11 @@ export const useServerStore = defineStore('servers', () => {
   const currentServer = ref(null)
   const loading = ref(false)
   const error = ref(null)
+  
+  // FTP state
+  const currentFTPUser = ref(null)
+  const ftpCredentials = ref(null)
+  const ftpLoading = ref(false)
 
   const serverCount = computed(() => servers.value.length)
   const runningServers = computed(() => servers.value.filter(s => s.status === 'running').length)
@@ -146,11 +151,117 @@ export const useServerStore = defineStore('servers', () => {
     currentServer.value = server
   }
 
+  const createFTPUser = async (serverId, username) => {
+    try {
+      ftpLoading.value = true
+      error.value = null
+      
+      const response = await apiClient.post(`/servers/${serverId}/ftp/create`, {
+        username
+      })
+      
+      currentFTPUser.value = response.data.data
+      
+      return {
+        success: true,
+        data: response.data.data,
+        message: response.data.data.message || 'FTP user created successfully'
+      }
+    } catch (err) {
+      const errorMessage = err.response?.data?.error || 'Failed to create FTP user'
+      error.value = errorMessage
+      return {
+        success: false,
+        error: errorMessage
+      }
+    } finally {
+      ftpLoading.value = false
+    }
+  }
+
+  const getFTPCredentials = async (serverId) => {
+    try {
+      ftpLoading.value = true
+      error.value = null
+      
+      const response = await apiClient.get(`/servers/${serverId}/ftp/credentials`)
+      
+      ftpCredentials.value = response.data.data
+      
+      return {
+        success: true,
+        data: response.data.data
+      }
+    } catch (err) {
+      const errorMessage = err.response?.data?.error || 'Failed to fetch FTP credentials'
+      error.value = errorMessage
+      return {
+        success: false,
+        error: errorMessage
+      }
+    } finally {
+      ftpLoading.value = false
+    }
+  }
+
+  const regenerateFTPPassword = async (serverId) => {
+    try {
+      ftpLoading.value = true
+      error.value = null
+      
+      const response = await apiClient.post(`/servers/${serverId}/ftp/regenerate-password`)
+      
+      return {
+        success: true,
+        data: response.data.data,
+        message: response.data.data.message || 'Password regenerated successfully'
+      }
+    } catch (err) {
+      const errorMessage = err.response?.data?.error || 'Failed to regenerate FTP password'
+      error.value = errorMessage
+      return {
+        success: false,
+        error: errorMessage
+      }
+    } finally {
+      ftpLoading.value = false
+    }
+  }
+
+  const deleteFTPUser = async (serverId) => {
+    try {
+      ftpLoading.value = true
+      error.value = null
+      
+      const response = await apiClient.delete(`/servers/${serverId}/ftp/user`)
+      
+      currentFTPUser.value = null
+      ftpCredentials.value = null
+      
+      return {
+        success: true,
+        message: response.data.message || 'FTP user deleted successfully'
+      }
+    } catch (err) {
+      const errorMessage = err.response?.data?.error || 'Failed to delete FTP user'
+      error.value = errorMessage
+      return {
+        success: false,
+        error: errorMessage
+      }
+    } finally {
+      ftpLoading.value = false
+    }
+  }
+
   return {
     servers,
     currentServer,
     loading,
     error,
+    currentFTPUser,
+    ftpCredentials,
+    ftpLoading,
     serverCount,
     runningServers,
     fetchServers,
@@ -160,5 +271,9 @@ export const useServerStore = defineStore('servers', () => {
     stopServer,
     restartServer,
     setCurrentServer,
+    createFTPUser,
+    getFTPCredentials,
+    regenerateFTPPassword,
+    deleteFTPUser,
   }
 })
